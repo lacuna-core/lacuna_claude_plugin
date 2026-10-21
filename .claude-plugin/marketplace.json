@@ -1,0 +1,18 @@
+{
+  "name": "lacuna",
+  "owner": {
+    "name": "Lacuna",
+    "email": "lacuna.core@gmail.com"
+  },
+  "metadata": {
+    "description": "Experimental Claude Code plugins: skills, MCP tools, MCP Apps"
+  },
+  "plugins": [
+    {
+      "name": "weather",
+      "source": "./plugins/weather",
+      "description": "Current weather and multi-day forecasts for any place, via Open-Meteo",
+      "version": "0.1.0"
+    }
+  ]
+}

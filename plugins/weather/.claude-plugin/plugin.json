@@ -1,0 +1,10 @@
+{
+  "name": "weather",
+  "version": "0.1.0",
+  "description": "Current weather and multi-day forecasts for any place, via Open-Meteo",
+  "author": {
+    "name": "Lacuna",
+    "email": "lacuna.core@gmail.com"
+  },
+  "keywords": ["weather", "mcp", "example"]
+}

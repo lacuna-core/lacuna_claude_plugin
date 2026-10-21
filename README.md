@@ -8,13 +8,21 @@ This is a learning and prototyping repo, not a product. Each experiment should b
 
 | Area | Location | Status |
 |------|----------|--------|
-| Plugin marketplace | `.claude-plugin/marketplace.json` | planned |
-| Plugins (skills, commands, agents, hooks) | `plugins/<plugin-name>/` | planned |
-| MCP servers (Python) | `src/lacuna_claude_plugin/mcp/` | planned |
-| MCP Apps (UI resources) | `src/lacuna_claude_plugin/mcp/apps/` | planned |
+| Plugin marketplace (`lacuna`) | `.claude-plugin/marketplace.json` | 1 plugin |
+| Plugins | `plugins/<plugin-name>/` | `weather` |
+| MCP servers (Python) | `plugins/<plugin-name>/server.py` | `weather` |
+| Skills | `plugins/<plugin-name>/skills/` | `weather` |
+| Commands, agents, hooks | `plugins/<plugin-name>/` | planned |
+| MCP Apps (UI resources) | `plugins/<plugin-name>/` | planned |
 | Helper CLI | `src/lacuna_claude_plugin/cli/` | `version` only |
 
-Planned layout of a plugin (the standard Claude Code plugin structure):
+### Plugins
+
+| Plugin | What it does | What it exercises |
+|--------|--------------|-------------------|
+| [`weather`](plugins/weather) | Current weather and up-to-16-day forecasts for any place, from [Open-Meteo](https://open-meteo.com) (free, no API key) | Python MCP server packaged in a plugin; a skill that steers tool use |
+
+Layout of a plugin (the standard Claude Code plugin structure):
 
 ```
 plugins/<plugin-name>/
@@ -23,8 +31,11 @@ plugins/<plugin-name>/
 ├── commands/<command>.md        # slash commands
 ├── agents/<agent>.md            # subagents
 ├── hooks/hooks.json             # lifecycle hooks
-└── .mcp.json                    # MCP servers bundled with the plugin
+├── .mcp.json                    # MCP servers bundled with the plugin
+└── server.py                    # MCP server: a self-contained uv script (PEP 723)
 ```
+
+Installed plugins are copied into Claude Code's plugin cache, so each plugin must be self-contained. It can't import code from `src/` or from other plugins.
 
 ## Prerequisites
 
@@ -40,16 +51,66 @@ uv sync --dev
 uv run pre-commit install
 ```
 
-## Try the plugins in Claude Code
+## Using the plugins
 
-Add this repo as a local marketplace, then install a plugin from it:
+MCP servers in these plugins run via `uv`, so `uv` must be on your `PATH`. Once a plugin is loaded, try something like *"will it rain in Lisbon this weekend?"*
 
+### Production: install from GitHub
+
+Install the released plugin from `main` on GitHub:
+
+```bash
+claude plugin install weather --marketplace lacuna-core/lacuna_claude_plugin
+# or, inside Claude Code:
+/plugin install weather --marketplace lacuna-core/lacuna_claude_plugin
 ```
-/plugin marketplace add ./
-/plugin install <plugin-name>@<marketplace-name>
+
+This adds the `lacuna` marketplace (a local snapshot of the repo) and installs the plugin from that snapshot. Installed plugins **don't follow GitHub automatically**. To pick up a newer release:
+
+```bash
+claude plugin marketplace update lacuna   # refresh the marketplace snapshot from GitHub
+claude plugin update weather              # install the newer plugin version
 ```
 
-Restart Claude Code after installing or changing a plugin so it picks up the new skills, commands, hooks, and MCP servers.
+Then restart Claude Code. A plugin only updates when its `version` changes, so pushing code without a version bump does nothing for installed users.
+
+### Development: run from your working tree
+
+**Fast loop: load the plugin for one session, no install.** This picks up uncommitted edits on every launch:
+
+```bash
+claude --plugin-dir ./plugins/weather   # one plugin
+claude --plugin-dir ./plugins           # every plugin in the repo
+```
+
+Edit the skill, manifest, or `server.py`, then quit and relaunch to see the change. If the same plugin is also installed from a marketplace, uninstall it first (`claude plugin uninstall weather`) so you know which copy is running.
+
+**Full install test: exercise the real install path from the local clone.** This checks the marketplace entry and that the plugin works once copied into the plugin cache:
+
+```bash
+claude plugin marketplace add ./
+claude plugin install weather@lacuna
+# after further edits:
+claude plugin marketplace update lacuna && claude plugin update weather
+```
+
+**Before pushing**, run the checks:
+
+```bash
+uv run ruff check && uv run mypy && uv run pytest
+claude plugin validate .                  # marketplace manifest
+claude plugin validate plugins/weather    # plugin manifest, skills
+```
+
+To debug an MCP server outside Claude Code, run it directly: `uv run --script plugins/weather/server.py` (it speaks MCP over stdio). Inside Claude Code, `/mcp` shows whether the server connected.
+
+### Releasing a plugin
+
+1. Bump `version` in **both** `plugins/<name>/.claude-plugin/plugin.json` and that plugin's entry in `.claude-plugin/marketplace.json`. They must match.
+2. Commit (`chore(plugin): release weather 0.2.0`) and push to `main`.
+3. Tag the release: `claude plugin tag plugins/<name> --push`. This creates `<name>--v<version>`, checking first that the two manifests agree. Plugin tags don't trigger the repo's `v*.*.*` release workflow.
+
+Users then get it with `claude plugin marketplace update lacuna && claude plugin update <name>`.
 
 ## Configure
 
