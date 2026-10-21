@@ -1,0 +1,1 @@
+- Generate commit messages using the Conventional Commits format: <type>(<scope>): <description>. Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert. Keep the subject line under 72 chars. Use imperative mood."
