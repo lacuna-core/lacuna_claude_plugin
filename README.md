@@ -1,27 +1,55 @@
-# lacuna
+# lacuna_claude_plugin
 
-TODO: one-sentence project description.
+A sandbox for experimenting with the Claude extension ecosystem: plugin **marketplaces**, **plugins**, **skills**, **slash commands**, **subagents**, **hooks**, **MCP servers/tools**, and **MCP Apps** (interactive UI returned by MCP tools).
 
-## Bootstrap
+This is a learning and prototyping repo, not a product. Each experiment should be small and self-contained, with a short note on what it tests and what we learned.
 
-```bash
-gh repo create <your-project-name> --template lacuna-core/lacuna_template --public --clone
-cd <your-project-name>
-bash shell/bootstrap.sh <your-project-name>
+## What's in here
+
+| Area | Location | Status |
+|------|----------|--------|
+| Plugin marketplace | `.claude-plugin/marketplace.json` | planned |
+| Plugins (skills, commands, agents, hooks) | `plugins/<plugin-name>/` | planned |
+| MCP servers (Python) | `src/lacuna_claude_plugin/mcp/` | planned |
+| MCP Apps (UI resources) | `src/lacuna_claude_plugin/mcp/apps/` | planned |
+| Helper CLI | `src/lacuna_claude_plugin/cli/` | `version` only |
+
+Planned layout of a plugin (the standard Claude Code plugin structure):
+
+```
+plugins/<plugin-name>/
+├── .claude-plugin/plugin.json   # manifest: name, version, description
+├── skills/<skill>/SKILL.md      # model-invoked skills
+├── commands/<command>.md        # slash commands
+├── agents/<agent>.md            # subagents
+├── hooks/hooks.json             # lifecycle hooks
+└── .mcp.json                    # MCP servers bundled with the plugin
 ```
 
 ## Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) — Python package manager
+- [Claude Code](https://docs.claude.com/en/docs/claude-code) — to install and run the plugins
 
 ## Install
 
 ```bash
-git clone <repo-url> lacuna
-cd lacuna
+git clone <repo-url> lacuna_claude_plugin
+cd lacuna_claude_plugin
 uv sync --dev
 uv run pre-commit install
 ```
+
+## Try the plugins in Claude Code
+
+Add this repo as a local marketplace, then install a plugin from it:
+
+```
+/plugin marketplace add ./
+/plugin install <plugin-name>@<marketplace-name>
+```
+
+Restart Claude Code after installing or changing a plugin so it picks up the new skills, commands, hooks, and MCP servers.
 
 ## Configure
 
@@ -41,6 +69,12 @@ cp .env.example .env
 ```bash
 uv run lacuna --help
 ```
+
+## References
+
+- [Claude Code plugins](https://docs.claude.com/en/docs/claude-code/plugins) and [plugin marketplaces](https://docs.claude.com/en/docs/claude-code/plugin-marketplaces)
+- [Agent Skills](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview)
+- [Model Context Protocol](https://modelcontextprotocol.io) and the [MCP Apps extension](https://github.com/modelcontextprotocol/ext-apps)
 
 ## Releases
 

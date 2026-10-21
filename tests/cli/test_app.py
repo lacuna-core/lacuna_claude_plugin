@@ -1,6 +1,6 @@
 from typer.testing import CliRunner
 
-from lacuna.cli.app import app
+from lacuna_claude_plugin.cli.app import app
 
 runner = CliRunner()
 
@@ -11,7 +11,7 @@ def test_help() -> None:
 
 
 def test_version() -> None:
-    from lacuna import __version__
+    from lacuna_claude_plugin import __version__
 
     result = runner.invoke(app, [])
     assert result.exit_code == 0

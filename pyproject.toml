@@ -1,7 +1,7 @@
 [project]
-name = "lacuna"
+name = "lacuna-claude-plugin"
 version = "0.1.0"
-description = "TODO: project description"
+description = "Sandbox for experimenting with Claude plugins, skills, MCP tools and MCP Apps"
 authors = [
     { name = "Lacuna", email = "lacuna.core@gmail.com" }
 ]
@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-lacuna = "lacuna:main"
+lacuna = "lacuna_claude_plugin:main"
 
 [build-system]
 requires = ["uv_build>=0.9.7,<0.10.0"]
@@ -47,10 +47,10 @@ ignore = ["E501"]
 extend-immutable-calls = ["typer.Argument", "typer.Option"]
 
 [tool.ruff.lint.per-file-ignores]
-"src/lacuna/__init__.py" = ["E402"]
+"src/lacuna_claude_plugin/__init__.py" = ["E402"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["lacuna"]
+known-first-party = ["lacuna_claude_plugin"]
 
 [tool.mypy]
 python_version = "3.14"
@@ -60,8 +60,8 @@ files = ["src", "tests"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "--cov=lacuna --cov-report=term-missing -q"
+addopts = "--cov=lacuna_claude_plugin --cov-report=term-missing -q"
 
 [tool.coverage.run]
-source = ["src/lacuna"]
+source = ["src/lacuna_claude_plugin"]
 omit = ["*/__init__.py"]

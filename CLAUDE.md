@@ -1,5 +1,17 @@
 # CLAUDE.md
 
+## Project purpose
+
+A sandbox for experimenting with Claude extensibility: plugin marketplaces, plugins, skills, slash commands, subagents, hooks, MCP servers/tools, and MCP Apps (interactive UI resources returned by MCP tools). Favor small, self-contained experiments over generalized frameworks. Each experiment should state what it tests, in its README, SKILL.md, or plugin description.
+
+Target layout (create directories as experiments need them):
+
+- **`.claude-plugin/marketplace.json`**: marketplace manifest at the repo root, listing plugins under `plugins/` by relative `source` path.
+- **`plugins/<plugin-name>/`**: one Claude Code plugin per directory, with `.claude-plugin/plugin.json`, plus any of `skills/<skill>/SKILL.md`, `commands/*.md`, `agents/*.md`, `hooks/hooks.json`, `.mcp.json`.
+- **`src/lacuna_claude_plugin/mcp/`**: Python MCP servers (and MCP App UI resources) that plugins reference from their `.mcp.json`, typically launched with `uv run`.
+
+When a plugin's MCP server lives in `src/`, reference it from `.mcp.json` via `${CLAUDE_PLUGIN_ROOT}`, not via absolute paths.
+
 ## Commands
 
 ```bash
@@ -20,7 +32,7 @@ uv run lacuna --help                 # run the CLI
 
 ## Architecture
 
-`src/lacuna/` follows a layered structure:
+`src/lacuna_claude_plugin/` follows a layered structure:
 
 - **`config.py`** — frozen `Settings` (pydantic-settings, `LACUNA_` env prefix). Calls `load_dotenv()` at import time. The singleton `SETTINGS` is imported by the CLI and passed explicitly to clients — nothing reads `SETTINGS` internally.
 - **`cli/app.py`** — Typer CLI. Sub-command groups live in separate files (e.g. `cli/foo.py`) and are registered via `app.add_typer(...)`.
@@ -43,7 +55,7 @@ All commits generated or suggested by Claude must conform to this spec.
 
 ### Scopes for this project (pick the closest match)
 
-- python, research
+- python, research, plugin, skill, mcp, marketplace
 
 ### Rules
 
@@ -57,5 +69,5 @@ All commits generated or suggested by Claude must conform to this spec.
 - Dependency injection: pass config explicitly to any client/service — never read the global `SETTINGS` inside library code.
 - mypy is strict. All functions including tests need return type annotations.
 - Git hooks (pre-commit) run ruff (fix + format) and mypy on every commit.
-- CLI lazy imports: in `cli/app.py`, `lacuna.*` imports must be inside the command function body, not at module level. `typer`, `rich`, and stdlib belong at the top of the file. This keeps `--help` fast and isolates heavy deps per command.
+- CLI lazy imports: in `cli/app.py`, `lacuna_claude_plugin.*` imports must be inside the command function body, not at module level. `typer`, `rich`, and stdlib belong at the top of the file. This keeps `--help` fast and isolates heavy deps per command.
 - **After every significant change** — new CLI command, new data pipeline, new dependency, changed directory layout — update `CLAUDE.md` (architecture / conventions), `README.md` (user-facing instructions), and `CONTRIBUTING.md` (dev setup / release process). Keep them in sync with the actual codebase.

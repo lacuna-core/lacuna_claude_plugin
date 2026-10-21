@@ -8,6 +8,6 @@ console = Console()
 @app.command()
 def version() -> None:
     """Print the current version."""
-    from lacuna import __version__
+    from lacuna_claude_plugin import __version__
 
     console.print(__version__)
