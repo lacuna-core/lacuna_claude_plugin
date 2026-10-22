@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weather card</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: var(--color-background-primary, #ffffff);
+    --bg-soft: var(--color-background-secondary, #f4f6f9);
+    --text: var(--color-text-primary, #16202c);
+    --text-soft: var(--color-text-secondary, #5b6776);
+    --border: var(--color-border-tertiary, #e3e7ed);
+    --accent: #2f7de1;
+    --radius: var(--border-radius-xl, 18px);
+    --font: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+    --cloud-a: #b9c5d3;
+    --cloud-b: #d6dee8;
+    --cloud-storm: #8c95ab;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: var(--color-background-primary, #1c2128);
+      --bg-soft: var(--color-background-secondary, #262c35);
+      --text: var(--color-text-primary, #e8edf3);
+      --text-soft: var(--color-text-secondary, #9aa6b4);
+      --border: var(--color-border-tertiary, #333b46);
+      --accent: #6aa8ff;
+      --cloud-a: #e4eaf1;
+      --cloud-b: #a9b5c4;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: var(--color-background-primary, #1c2128);
+    --bg-soft: var(--color-background-secondary, #262c35);
+    --text: var(--color-text-primary, #e8edf3);
+    --text-soft: var(--color-text-secondary, #9aa6b4);
+    --border: var(--color-border-tertiary, #333b46);
+    --accent: #6aa8ff;
+    --cloud-a: #e4eaf1;
+    --cloud-b: #a9b5c4;
+  }
+  /* Icons drawn on the sky gradients always use light clouds. */
+  .hero, .fc-head { --cloud-a: #f4f7fb; --cloud-b: #dbe3ec; --cloud-storm: #b9c0d4; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; }
+  body { font-family: var(--font); color: var(--text); padding: 4px; -webkit-font-smoothing: antialiased; }
+  button { font: inherit; cursor: pointer; }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  /* Current-conditions hero card */
+  .hero {
+    position: relative; overflow: hidden; border-radius: var(--radius); color: #fff;
+    padding: 20px 22px 18px; max-width: 520px;
+    background: linear-gradient(160deg, var(--sky-a), var(--sky-b));
+    box-shadow: 0 1px 3px rgba(15, 30, 60, 0.15);
+  }
+  .hero .place { font-size: 15px; font-weight: 600; letter-spacing: 0.01em; }
+  .hero .sub { font-size: 12.5px; opacity: 0.82; margin-top: 2px; }
+  .hero .main { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 4px; }
+  .hero .temp { font-size: 64px; font-weight: 250; line-height: 1; letter-spacing: -0.03em; }
+  .hero .temp sup { font-size: 26px; font-weight: 300; vertical-align: top; position: relative; top: 8px; margin-left: 2px; }
+  .hero .icon svg { width: 84px; height: 84px; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.15)); }
+  .hero .cond { font-size: 16px; font-weight: 500; text-transform: capitalize; }
+  .hero .feels { font-size: 13px; opacity: 0.85; margin-top: 2px; }
+  .stats {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 16px;
+  }
+  .stat { background: rgba(255,255,255,0.16); border-radius: 12px; padding: 9px 11px; backdrop-filter: blur(6px); }
+  .stat .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.8; }
+  .stat .v { font-size: 15px; font-weight: 600; margin-top: 2px; }
+  .actions { display: flex; gap: 8px; margin-top: 14px; }
+  .btn {
+    flex: 1; border: 1px solid rgba(255,255,255,0.45); background: rgba(255,255,255,0.18); color: #fff;
+    border-radius: 999px; padding: 9px 12px; font-size: 13.5px; font-weight: 600;
+    transition: background 0.15s, transform 0.05s;
+  }
+  .btn:hover { background: rgba(255,255,255,0.3); }
+  .btn:active { transform: scale(0.98); }
+  .btn[disabled] { opacity: 0.75; cursor: default; }
+
+  /* Forecast card */
+  .fc { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); max-width: 520px; overflow: hidden; }
+  .fc-head {
+    padding: 16px 18px 14px; color: #fff; background: linear-gradient(160deg, var(--sky-a), var(--sky-b));
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  }
+  .fc-head .place { font-size: 15px; font-weight: 600; }
+  .fc-head .sub { font-size: 12.5px; opacity: 0.85; margin-top: 2px; }
+  .days { list-style: none; margin: 0; padding: 4px 0; }
+  .day {
+    display: grid; grid-template-columns: 74px 30px 40px 38px 1fr 38px; align-items: center; gap: 8px;
+    padding: 7px 18px; font-size: 14px;
+  }
+  .day + .day { border-top: 1px solid var(--border); }
+  .day .name { font-weight: 600; }
+  .day .name small { display: block; font-weight: 400; font-size: 11.5px; color: var(--text-soft); }
+  .day .ic svg { width: 30px; height: 30px; display: block; }
+  .day .pop { font-size: 12px; font-weight: 600; color: var(--accent); text-align: center; }
+  .day .lo { color: var(--text-soft); text-align: right; }
+  .day .hi { font-weight: 600; }
+  .bar { position: relative; height: 6px; border-radius: 3px; background: var(--bg-soft); }
+  .bar i { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: linear-gradient(90deg, #5aa9f0, #f5c542, #f08a3c); background-size: var(--span) 100%; background-position: var(--off) 0; }
+
+  .msg {
+    max-width: 520px; padding: 18px 20px; border-radius: var(--radius); background: var(--bg);
+    border: 1px solid var(--border); color: var(--text-soft); font-size: 14px;
+  }
+  .msg strong { color: var(--text); }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: s 0.8s linear infinite; vertical-align: -2px; margin-right: 8px; }
+  @keyframes s { to { transform: rotate(360deg); } }
+
+  @media (max-width: 420px) {
+    .hero .temp { font-size: 54px; }
+    .day { grid-template-columns: 64px 28px 36px 34px 1fr 34px; gap: 6px; padding: 7px 12px; }
+    .fc-head { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<div id="app"><div class="msg"><span class="spin"></span>Loading weather…</div></div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---------- MCP Apps protocol (JSON-RPC 2.0 over postMessage to the host) ----------
+  const PROTOCOL_VERSION = "2026-01-26";
+  let nextId = 1;
+  const pending = new Map();
+
+  function post(msg) { window.parent.postMessage({ jsonrpc: "2.0", ...msg }, "*"); }
+  function notify(method, params) { post({ method, params }); }
+  function request(method, params) {
+    const id = nextId++;
+    return new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      post({ id, method, params });
+    });
+  }
+
+  const handlers = {
+    "ui/notifications/tool-input": (p) => { toolArgs = (p && p.arguments) || {}; renderLoading(toolArgs.location); },
+    "ui/notifications/tool-result": (p) => onToolResult(p),
+    "ui/notifications/tool-cancelled": () => renderMessage("The weather lookup was cancelled."),
+    "ui/notifications/host-context-changed": (p) => applyHostContext(p),
+    "ui/resource-teardown": () => ({}),
+    "ping": () => ({}),
+  };
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window.parent) return;
+    const msg = event.data;
+    if (!msg || msg.jsonrpc !== "2.0") return;
+    if (msg.method) {
+      const handler = handlers[msg.method];
+      const result = handler ? handler(msg.params) : undefined;
+      if (msg.id !== undefined) {
+        post(handler
+          ? { id: msg.id, result: result || {} }
+          : { id: msg.id, error: { code: -32601, message: `Method not found: ${msg.method}` } });
+      }
+    } else if (msg.id !== undefined && pending.has(msg.id)) {
+      const { resolve, reject } = pending.get(msg.id);
+      pending.delete(msg.id);
+      msg.error ? reject(new Error(msg.error.message || "Request failed")) : resolve(msg.result);
+    }
+  });
+
+  function applyHostContext(ctx) {
+    if (!ctx) return;
+    if (ctx.locale) locale = ctx.locale;
+    if (ctx.theme) document.documentElement.dataset.theme = ctx.theme;
+    const vars = ctx.styles && ctx.styles.variables;
+    if (vars) for (const [k, v] of Object.entries(vars)) if (v) document.documentElement.style.setProperty(k, v);
+    const fonts = ctx.styles && ctx.styles.css && ctx.styles.css.fonts;
+    if (fonts) { const s = document.createElement("style"); s.textContent = fonts; document.head.appendChild(s); }
+  }
+
+  // Report our height so the host can size the iframe to fit.
+  let lastHeight = 0;
+  new ResizeObserver(() => {
+    const height = Math.ceil(document.documentElement.getBoundingClientRect().height);
+    if (height !== lastHeight) { lastHeight = height; notify("ui/notifications/size-changed", { height }); }
+  }).observe(document.documentElement);
+
+  // ---------- State ----------
+  let locale = undefined;
+  let toolArgs = {};
+
+  function onToolResult(result) {
+    const card = result && result.structuredContent;
+    if (!card) {
+      const text = result && result.content && result.content.find((c) => c.type === "text");
+      return renderMessage(text ? text.text : "No weather data returned.");
+    }
+    if (card.kind === "error") return renderMessage(card.message);
+    if (card.kind === "current") return renderCurrent(card);
+    if (card.kind === "forecast") return renderForecast(card);
+  }
+
+  // Widget actions become user input: ui/message posts a user turn into the
+  // conversation, Claude reads it and calls get_forecast, and the host renders
+  // the result as a new forecast card.
+  async function askForForecast(days, card, button) {
+    const imperial = card.units === "imperial" ? " in imperial units" : "";
+    const text = `Show me the ${days}-day forecast for ${card.query}${imperial}.`;
+    const buttons = $app.querySelectorAll("[data-days]");
+    buttons.forEach((b) => { b.disabled = true; });
+    button.innerHTML = `<span class="spin"></span>Asking Claude`;
+    const restore = () => buttons.forEach((b) => { b.disabled = false; b.textContent = b.dataset.label; });
+    try {
+      await request("ui/message", { role: "user", content: [{ type: "text", text }] });
+      button.textContent = "Added to chat ✓";
+      setTimeout(restore, 2500);
+    } catch (err) {
+      restore();
+      showNote(`Couldn't send to Claude: ${err.message}`);
+    }
+  }
+
+  // ---------- Rendering ----------
+  const $app = document.getElementById("app");
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const round = (n) => (n == null ? "–" : Math.round(n));
+
+  function group(code) {
+    if (code == null) return "cloudy";
+    if (code <= 1) return "clear";
+    if (code === 2) return "partly";
+    if (code === 3) return "cloudy";
+    if (code === 45 || code === 48) return "fog";
+    if (code >= 95) return "storm";
+    if ((code >= 71 && code <= 77) || code === 85 || code === 86) return "snow";
+    return "rain";
+  }
+
+  const SKIES = {
+    clear:  { day: ["#3d8bea", "#8cc8f7"], night: ["#0d1b3e", "#2c4170"] },
+    partly: { day: ["#4f8fd6", "#a5c8eb"], night: ["#1a2647", "#3c4f78"] },
+    cloudy: { day: ["#62758f", "#a4b4c8"], night: ["#252d3a", "#4a5568"] },
+    fog:    { day: ["#7f8a97", "#bcc4cd"], night: ["#2e343c", "#565e68"] },
+    rain:   { day: ["#3c5a80", "#7393bd"], night: ["#16233a", "#3a4f70"] },
+    snow:   { day: ["#7c97b8", "#c3d3e5"], night: ["#2c3a50", "#5d7090"] },
+    storm:  { day: ["#2e2b4d", "#605486"], night: ["#17152b", "#3b3458"] },
+  };
+  function skyStyle(code, isDay = true) {
+    const [a, b] = SKIES[group(code)][isDay ? "day" : "night"];
+    return `--sky-a:${a};--sky-b:${b}`;
+  }
+
+  const CLOUD = (v) => `<path d="M19 48h28a11 11 0 0 0 1.5-21.9A15 15 0 0 0 20 23.5 12.3 12.3 0 0 0 19 48z" style="fill:var(${v})"/>`;
+  const SUN = (cx, cy, r) => {
+    let rays = "";
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4, r1 = r + 4, r2 = r + 9;
+      rays += `<line x1="${cx + r1 * Math.cos(a)}" y1="${cy + r1 * Math.sin(a)}" x2="${cx + r2 * Math.cos(a)}" y2="${cy + r2 * Math.sin(a)}"/>`;
+    }
+    return `<g stroke="#ffc93c" stroke-width="3.5" stroke-linecap="round">${rays}</g><circle cx="${cx}" cy="${cy}" r="${r}" fill="#ffc93c"/>`;
+  };
+  const MOON = (cx, cy, r) => `<path d="M${cx + r * 0.35} ${cy - r} a${r} ${r} 0 1 0 ${r * 0.65} ${r * 1.55} A${r * 0.8} ${r * 0.8} 0 0 1 ${cx + r * 0.35} ${cy - r}z" fill="#f3e4a8"/>`;
+  function icon(code, isDay = true) {
+    const g = group(code);
+    let body;
+    if (g === "clear") body = isDay ? SUN(32, 32, 12) : MOON(28, 32, 15);
+    else if (g === "partly") body = `${isDay ? SUN(42, 22, 10) : MOON(40, 20, 12)}<g transform="translate(-5 6)">${CLOUD("--cloud-a")}</g>`;
+    else if (g === "cloudy") body = `<g transform="translate(10 -8) scale(0.75)">${CLOUD("--cloud-b")}</g>${CLOUD("--cloud-a")}`;
+    else if (g === "fog") body = `<g transform="translate(0 -6)">${CLOUD("--cloud-a")}</g><g style="stroke:var(--cloud-b)" stroke-width="3.5" stroke-linecap="round"><line x1="14" y1="50" x2="50" y2="50"/><line x1="20" y1="57" x2="44" y2="57"/></g>`;
+    else if (g === "rain") body = `<g transform="translate(0 -6)">${CLOUD("--cloud-a")}</g><g stroke="#4aa3ff" stroke-width="3.5" stroke-linecap="round"><line x1="24" y1="48" x2="21" y2="56"/><line x1="33" y1="48" x2="30" y2="56"/><line x1="42" y1="48" x2="39" y2="56"/></g>`;
+    else if (g === "snow") body = `<g transform="translate(0 -6)">${CLOUD("--cloud-a")}</g><g fill="#8cc4f5"><circle cx="23" cy="51" r="2.6"/><circle cx="32" cy="56" r="2.6"/><circle cx="41" cy="51" r="2.6"/></g>`;
+    else body = `<g transform="translate(0 -6)">${CLOUD("--cloud-storm")}</g><path d="M34 40l-8 12h7l-4 10 11-14h-7l4-8z" fill="#ffc21a"/>`;
+    return `<svg viewBox="0 0 64 64" aria-hidden="true">${body}</svg>`;
+  }
+
+  function dayName(iso, i) {
+    const d = new Date(`${iso}T12:00:00`);
+    const name = i === 0 ? "Today" : d.toLocaleDateString(locale, { weekday: "short" });
+    return { name, date: d.toLocaleDateString(locale, { month: "short", day: "numeric" }) };
+  }
+  function clock(iso) {
+    const d = new Date(iso);
+    return isNaN(d) ? iso : d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+  }
+  function placeLines(loc) {
+    return { title: loc.name || loc.label, sub: [loc.region, loc.country].filter(Boolean).join(", ") };
+  }
+
+  function renderLoading(location) {
+    $app.innerHTML = `<div class="msg"><span class="spin"></span>Loading weather${location ? ` for <strong>${esc(location)}</strong>` : ""}…</div>`;
+  }
+  function renderMessage(text) {
+    $app.innerHTML = `<div class="msg">${esc(text)}</div>`;
+  }
+
+  function renderCurrent(card) {
+    const c = card.current, u = card.unit_labels, p = placeLines(card.location);
+    const unit = u.temperature.replace("°", "");
+    $app.innerHTML = `
+      <section class="hero" style="${skyStyle(c.weather_code, c.is_day)}">
+        <div class="place">${esc(p.title)}</div>
+        <div class="sub">${esc(p.sub)}${p.sub ? " · " : ""}Updated ${esc(clock(c.time))}</div>
+        <div class="main">
+          <div class="temp tnum">${round(c.temperature)}<sup>°${esc(unit)}</sup></div>
+          <div class="icon">${icon(c.weather_code, c.is_day)}</div>
+        </div>
+        <div class="cond">${esc(c.condition)}</div>
+        <div class="feels tnum">Feels like ${round(c.apparent_temperature)}°</div>
+        <div class="stats tnum">
+          <div class="stat"><div class="k">Humidity</div><div class="v">${round(c.humidity)}%</div></div>
+          <div class="stat"><div class="k">Wind</div><div class="v">${round(c.wind_speed)} ${esc(u.wind_speed)}</div></div>
+          <div class="stat"><div class="k">Precip</div><div class="v">${esc(c.precipitation)} ${esc(u.precipitation)}</div></div>
+        </div>
+        <div class="actions">
+          <button class="btn" data-days="7" data-label="Next 7 days">Next 7 days</button>
+          <button class="btn" data-days="14" data-label="Next 14 days">Next 14 days</button>
+        </div>
+      </section>`;
+    $app.querySelectorAll("[data-days]").forEach((b) =>
+      b.addEventListener("click", () => askForForecast(Number(b.dataset.days), card, b)));
+  }
+
+  function renderForecast(card) {
+    const p = placeLines(card.location), days = card.days;
+    const lo = Math.min(...days.map((d) => d.temp_min)), hi = Math.max(...days.map((d) => d.temp_max));
+    const span = Math.max(hi - lo, 1);
+    const rows = days.map((d, i) => {
+      const n = dayName(d.date, i);
+      const left = ((d.temp_min - lo) / span) * 100, width = Math.max(((d.temp_max - d.temp_min) / span) * 100, 4);
+      const pop = d.precipitation_probability;
+      return `
+        <li class="day" title="${esc(d.condition)}">
+          <div class="name">${esc(n.name)}<small>${esc(n.date)}</small></div>
+          <div class="ic">${icon(d.weather_code)}</div>
+          <div class="pop tnum">${pop != null && pop >= 20 ? `${pop}%` : ""}</div>
+          <div class="lo tnum">${round(d.temp_min)}°</div>
+          <div class="bar"><i style="left:${left}%;width:${width}%;--span:${(100 / width) * 100}%;--off:${(left / Math.max(100 - width, 1)) * 100}%"></i></div>
+          <div class="hi tnum">${round(d.temp_max)}°</div>
+        </li>`;
+    }).join("");
+    $app.innerHTML = `
+      <section class="fc">
+        <header class="fc-head" style="${skyStyle(days[0] && days[0].weather_code)}">
+          <div>
+            <div class="place">${esc(p.title)}</div>
+            <div class="sub">${days.length}-day forecast${p.sub ? ` · ${esc(p.sub)}` : ""}</div>
+          </div>
+        </header>
+        <ul class="days">${rows}</ul>
+      </section>`;
+  }
+
+  function showNote(text) {
+    const el = document.createElement("div");
+    el.className = "msg";
+    el.style.marginTop = "8px";
+    el.textContent = text;
+    $app.appendChild(el);
+    setTimeout(() => el.remove(), 6000);
+  }
+
+  // ---------- Handshake ----------
+  request("ui/initialize", {
+    protocolVersion: PROTOCOL_VERSION,
+    appInfo: { name: "weather-card", version: "0.2.0" },
+    appCapabilities: { availableDisplayModes: ["inline"] },
+  }).then((result) => {
+    applyHostContext(result && result.hostContext);
+    notify("ui/notifications/initialized", {});
+  }).catch((err) => renderMessage(`Couldn't connect to host: ${err.message}`));
+})();
+</script>
+</body>
+</html>

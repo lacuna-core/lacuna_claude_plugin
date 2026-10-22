@@ -1,10 +1,10 @@
 {
   "name": "weather",
-  "version": "0.1.0",
-  "description": "Current weather and multi-day forecasts for any place, via Open-Meteo",
+  "version": "0.2.0",
+  "description": "Current weather and multi-day forecasts for any place, via Open-Meteo, rendered as interactive weather cards (MCP Apps)",
   "author": {
     "name": "Lacuna",
     "email": "lacuna.core@gmail.com"
   },
-  "keywords": ["weather", "mcp", "example"]
+  "keywords": ["weather", "mcp", "mcp-apps", "example"]
 }

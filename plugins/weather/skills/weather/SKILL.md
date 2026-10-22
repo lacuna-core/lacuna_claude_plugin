@@ -23,3 +23,11 @@ Use the `weather` MCP server's tools to answer weather questions. Don't guess co
 - Lead with the direct answer to the question asked ("Yes, rain is likely Saturday afternoon"), then the supporting numbers.
 - Name the resolved place so the user can catch a wrong match.
 - Keep it short. Don't dump the full tool output unless asked.
+
+## Weather cards (MCP Apps)
+
+Both tools are MCP Apps. In hosts that support them (e.g. the Claude apps), each result renders as a card: current conditions, or a day-by-day forecast list. The current-conditions card has **Next 7 days** / **Next 14 days** buttons. A click posts a user message such as "Show me the 7-day forecast for Lisbon."
+
+- **When a card is shown, the card is the answer.** Reply with one short line that names the place and repeats no values ("Here's the current weather in Toronto."): no numbers, conditions, lists or summary. An empty reply doesn't work, because Claude Code then asks for a visible response. The tool result starts with a note when the host renders cards. The only exception is a specific question the card doesn't directly answer ("do I need an umbrella?"); answer just that in one short sentence.
+- To show both current conditions and a forecast, prefer one `get_current_weather` call: the user can expand the forecast from the card. Call `get_forecast` yourself when the question is about future days.
+- When such a message comes from a card button, call `get_forecast` with that location, that number of `days`, and the same units. The forecast renders as its own card, so reply with just one short line ("Here's the 7-day forecast for Lisbon.").

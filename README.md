@@ -13,14 +13,14 @@ This is a learning and prototyping repo, not a product. Each experiment should b
 | MCP servers (Python) | `plugins/<plugin-name>/server.py` | `weather` |
 | Skills | `plugins/<plugin-name>/skills/` | `weather` |
 | Commands, agents, hooks | `plugins/<plugin-name>/` | planned |
-| MCP Apps (UI resources) | `plugins/<plugin-name>/` | planned |
+| MCP Apps (UI resources) | `plugins/<plugin-name>/widget.html` | `weather` |
 | Helper CLI | `src/lacuna_claude_plugin/cli/` | `version` only |
 
 ### Plugins
 
 | Plugin | What it does | What it exercises |
 |--------|--------------|-------------------|
-| [`weather`](plugins/weather) | Current weather and up-to-16-day forecasts for any place, from [Open-Meteo](https://open-meteo.com) (free, no API key) | Python MCP server packaged in a plugin; a skill that steers tool use |
+| [`weather`](plugins/weather) | Current weather and up-to-16-day forecasts for any place, from [Open-Meteo](https://open-meteo.com) (free, no API key), rendered as weather cards. The current-conditions card has **Next 7 days** / **Next 14 days** buttons | Python MCP server packaged in a plugin; a skill that steers tool use; an MCP App (`ui://` widget whose buttons send `ui/message`, so card actions become user input to Claude) |
 
 Layout of a plugin (the standard Claude Code plugin structure):
 
@@ -32,7 +32,8 @@ plugins/<plugin-name>/
 ├── agents/<agent>.md            # subagents
 ├── hooks/hooks.json             # lifecycle hooks
 ├── .mcp.json                    # MCP servers bundled with the plugin
-└── server.py                    # MCP server: a self-contained uv script (PEP 723)
+├── server.py                    # MCP server: a self-contained uv script (PEP 723)
+└── widget.html                  # MCP App UI: one self-contained HTML file, served as a ui:// resource
 ```
 
 Installed plugins are copied into Claude Code's plugin cache, so each plugin must be self-contained. It can't import code from `src/` or from other plugins.
@@ -103,6 +104,19 @@ claude plugin validate plugins/weather    # plugin manifest, skills
 ```
 
 To debug an MCP server outside Claude Code, run it directly: `uv run --script plugins/weather/server.py` (it speaks MCP over stdio). Inside Claude Code, `/mcp` shows whether the server connected.
+
+**MCP Apps widgets only render in hosts that support MCP Apps**, such as the Claude desktop and web apps. Claude Code in the terminal gets the tools' text output instead, which is a complete answer on its own. To see the cards, add the server to a host that renders MCP Apps, for example in Claude Desktop's `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "weather": {
+      "command": "uv",
+      "args": ["run", "--quiet", "--script", "/absolute/path/to/lacuna_claude_plugin/plugins/weather/server.py"]
+    }
+  }
+}
+```
 
 ### Releasing a plugin
 

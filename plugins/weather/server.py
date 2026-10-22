@@ -7,18 +7,36 @@
 # ///
 """Weather MCP server backed by the free, keyless Open-Meteo API.
 
+Both tools are MCP Apps: they carry `_meta.ui.resourceUri` pointing at a `ui://`
+widget (widget.html) that hosts supporting MCP Apps render as a weather card.
+The widget gets its data from the tool result's `structuredContent`; the text
+`content` is the fallback for hosts without MCP Apps and is what the model reads.
+The current-weather card's "Next 7/14 days" buttons send a `ui/message` into
+the conversation, so Claude itself calls get_forecast and a forecast card appears.
+
 Run standalone with: uv run --script plugins/weather/server.py
 """
 
+import sys
+from pathlib import Path
 from typing import Any, Literal
 
 import httpx
-from mcp.server.mcpserver import MCPServer
+from mcp.server.apps import Apps, client_supports_apps
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.types import CallToolResult, TextContent
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 REQUEST_TIMEOUT = 30.0
 MAX_FORECAST_DAYS = 16
+DAILY_FIELDS = (
+    "weather_code,temperature_2m_max,temperature_2m_min,"
+    "precipitation_sum,precipitation_probability_max"
+)
+
+WIDGET_URI = "ui://weather/card.html"
+WIDGET_HTML = (Path(__file__).parent / "widget.html").read_text(encoding="utf-8")
 
 type Units = Literal["metric", "imperial"]
 
@@ -54,12 +72,13 @@ WEATHER_CODES: dict[int, str] = {
     99: "thunderstorm with heavy hail",
 }
 
-server = MCPServer(
-    name="weather",
-    instructions=(
-        "Weather lookups for any place name worldwide. "
-        "Use get_current_weather for conditions right now and get_forecast for upcoming days."
-    ),
+apps = Apps()
+apps.add_html_resource(
+    WIDGET_URI,
+    WIDGET_HTML,
+    name="Weather card",
+    description="Renders current conditions or a daily forecast as a card",
+    prefers_border=False,
 )
 
 
@@ -103,6 +122,17 @@ def place_label(place: dict[str, Any]) -> str:
     return ", ".join(str(p) for p in parts if p)
 
 
+def place_info(place: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": place.get("name"),
+        "region": place.get("admin1"),
+        "country": place.get("country"),
+        "label": place_label(place),
+        "latitude": place["latitude"],
+        "longitude": place["longitude"],
+    }
+
+
 async def fetch_forecast(
     client: httpx.AsyncClient, place: dict[str, Any], params: dict[str, Any]
 ) -> dict[str, Any]:
@@ -120,50 +150,162 @@ async def fetch_forecast(
     return data
 
 
-@server.tool()
-async def get_current_weather(location: str, units: Units = "metric") -> str:
-    """Get current weather conditions for a place.
+def daily_days(data: dict[str, Any]) -> list[dict[str, Any]]:
+    daily = data["daily"]
+    return [
+        {
+            "date": date,
+            "condition": describe(daily["weather_code"][i]),
+            "weather_code": daily["weather_code"][i],
+            "temp_min": daily["temperature_2m_min"][i],
+            "temp_max": daily["temperature_2m_max"][i],
+            "precipitation": daily["precipitation_sum"][i],
+            "precipitation_probability": daily["precipitation_probability_max"][i],
+        }
+        for i, date in enumerate(daily["time"])
+    ]
+
+
+# Prepended to the model-facing text when the host renders the card, so Claude
+# lets the card be the answer instead of restating it underneath.
+CARD_SHOWN_NOTE = (
+    "[Displayed as a card: the client announced MCP Apps support "
+    "(io.modelcontextprotocol/ui), so it renders this result as an interactive weather "
+    "card directly above your reply. This holds even if your environment looks like a "
+    "terminal: the user is in a graphical app (e.g. the Claude desktop app) and already "
+    "sees every value below. Reply with exactly one short line that names the place and "
+    'repeats no values, e.g. "Here\'s the current weather in Toronto." - no numbers, '
+    "conditions, lists or summary. Only if the user asked a specific question the card "
+    "doesn't directly answer, answer just that in one short sentence instead.]"
+)
+CARD_TOOL_NOTE = (
+    "When the host renders the result as a weather card, the card is the complete answer: "
+    "reply with one short line and no values, not a text summary."
+)
+
+_logged_client_support = False
+
+
+def card_shown(ctx: Context | None) -> bool:
+    """Whether the client renders MCP Apps, i.e. the user sees the card."""
+    global _logged_client_support
+    supported = ctx is not None and client_supports_apps(ctx)
+    if not _logged_client_support:
+        # stderr lands in the host's MCP server log (e.g. Claude's mcp-server-weather.log).
+        print(f"weather: client supports MCP Apps: {supported}", file=sys.stderr)
+        _logged_client_support = True
+    return supported
+
+
+def card_result(text: str, card: dict[str, Any], ctx: Context | None) -> CallToolResult:
+    if card_shown(ctx):
+        # Some hosts (Claude Code) give the model structuredContent instead of the
+        # text content, so the note goes in both, first so it's read before the data.
+        text = f"{CARD_SHOWN_NOTE}\n\n{text}"
+        card = {"note_for_assistant": CARD_SHOWN_NOTE, **card}
+    return CallToolResult(content=[TextContent(type="text", text=text)], structured_content=card)
+
+
+def not_found(error: LocationNotFoundError) -> CallToolResult:
+    return CallToolResult(
+        content=[TextContent(type="text", text=str(error))],
+        structured_content={"kind": "error", "message": str(error)},
+    )
+
+
+def current_text(card: dict[str, Any]) -> str:
+    c, u = card["current"], card["unit_labels"]
+    return "\n".join(
+        [
+            f"Current weather in {card['location']['label']} (as of {c['time']} local time):",
+            f"- Conditions: {c['condition']}",
+            f"- Temperature: {c['temperature']}{u['temperature']}"
+            f" (feels like {c['apparent_temperature']}{u['temperature']})",
+            f"- Humidity: {c['humidity']}%",
+            f"- Wind: {c['wind_speed']} {u['wind_speed']}",
+            f"- Precipitation: {c['precipitation']} {u['precipitation']}",
+        ]
+    )
+
+
+def forecast_text(card: dict[str, Any]) -> str:
+    u = card["unit_labels"]
+    lines = [f"{len(card['days'])}-day forecast for {card['location']['label']}:"]
+    for d in card["days"]:
+        lines.append(
+            f"- {d['date']}: {d['condition']}, "
+            f"{d['temp_min']}–{d['temp_max']}{u['temperature']}, "
+            f"precipitation {d['precipitation']} {u['precipitation']} "
+            f"({d['precipitation_probability']}% chance)"
+        )
+    return "\n".join(lines)
+
+
+@apps.tool(resource_uri=WIDGET_URI)
+async def get_current_weather(
+    location: str, units: Units = "metric", ctx: Context | None = None
+) -> CallToolResult:
+    """Get current weather conditions for a place, shown as a weather card.
+
+    When the host renders the result as a weather card, the card is the complete
+    answer: reply with one short line and no values, not a text summary.
 
     Args:
-        location: Place name, e.g. "Berlin" or "Portland, Oregon".
+        location: Place name, optionally with ", region" or ", country", e.g. "Portland, Maine".
         units: "metric" (°C, km/h, mm) or "imperial" (°F, mph, inch).
     """
     async with make_client() as client:
         try:
             place = await geocode(client, location)
         except LocationNotFoundError as e:
-            return str(e)
+            return not_found(e)
         data = await fetch_forecast(
             client,
             place,
             {
                 "current": "temperature_2m,apparent_temperature,relative_humidity_2m,"
-                "weather_code,wind_speed_10m,precipitation",
+                "weather_code,wind_speed_10m,precipitation,is_day",
                 **unit_params(units),
             },
         )
 
-    current = data["current"]
-    u = data["current_units"]
-    return "\n".join(
-        [
-            f"Current weather in {place_label(place)} (as of {current['time']} local time):",
-            f"- Conditions: {describe(current.get('weather_code'))}",
-            f"- Temperature: {current['temperature_2m']}{u['temperature_2m']}"
-            f" (feels like {current['apparent_temperature']}{u['apparent_temperature']})",
-            f"- Humidity: {current['relative_humidity_2m']}{u['relative_humidity_2m']}",
-            f"- Wind: {current['wind_speed_10m']} {u['wind_speed_10m']}",
-            f"- Precipitation: {current['precipitation']} {u['precipitation']}",
-        ]
-    )
+    current, u = data["current"], data["current_units"]
+    card = {
+        "kind": "current",
+        "query": location,
+        "units": units,
+        "location": place_info(place),
+        "unit_labels": {
+            "temperature": u["temperature_2m"],
+            "wind_speed": u["wind_speed_10m"],
+            "precipitation": u["precipitation"],
+        },
+        "current": {
+            "time": current["time"],
+            "condition": describe(current.get("weather_code")),
+            "weather_code": current.get("weather_code"),
+            "is_day": bool(current.get("is_day", 1)),
+            "temperature": current["temperature_2m"],
+            "apparent_temperature": current["apparent_temperature"],
+            "humidity": current["relative_humidity_2m"],
+            "wind_speed": current["wind_speed_10m"],
+            "precipitation": current["precipitation"],
+        },
+    }
+    return card_result(current_text(card), card, ctx)
 
 
-@server.tool()
-async def get_forecast(location: str, days: int = 3, units: Units = "metric") -> str:
-    """Get a daily weather forecast for a place.
+@apps.tool(resource_uri=WIDGET_URI)
+async def get_forecast(
+    location: str, days: int = 3, units: Units = "metric", ctx: Context | None = None
+) -> CallToolResult:
+    """Get a daily weather forecast for a place, shown as a weather card.
+
+    When the host renders the result as a weather card, the card is the complete
+    answer: reply with one short line and no values, not a text summary.
 
     Args:
-        location: Place name, e.g. "Berlin" or "Portland, Oregon".
+        location: Place name, optionally with ", region" or ", country", e.g. "Portland, Maine".
         days: Number of days to forecast, starting today (1-16).
         units: "metric" (°C, mm) or "imperial" (°F, inch).
     """
@@ -172,29 +314,43 @@ async def get_forecast(location: str, days: int = 3, units: Units = "metric") ->
         try:
             place = await geocode(client, location)
         except LocationNotFoundError as e:
-            return str(e)
+            return not_found(e)
         data = await fetch_forecast(
             client,
             place,
             {
-                "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
-                "precipitation_sum,precipitation_probability_max",
+                "daily": DAILY_FIELDS,
                 "forecast_days": days,
                 **unit_params(units),
             },
         )
 
-    daily = data["daily"]
     u = data["daily_units"]
-    lines = [f"{days}-day forecast for {place_label(place)}:"]
-    for i, date in enumerate(daily["time"]):
-        lines.append(
-            f"- {date}: {describe(daily['weather_code'][i])}, "
-            f"{daily['temperature_2m_min'][i]}–{daily['temperature_2m_max'][i]}{u['temperature_2m_max']}, "
-            f"precipitation {daily['precipitation_sum'][i]} {u['precipitation_sum']} "
-            f"({daily['precipitation_probability_max'][i]}{u['precipitation_probability_max']} chance)"
-        )
-    return "\n".join(lines)
+    card = {
+        "kind": "forecast",
+        "query": location,
+        "units": units,
+        "location": place_info(place),
+        "unit_labels": {
+            "temperature": u["temperature_2m_max"],
+            "precipitation": u["precipitation_sum"],
+        },
+        "days": daily_days(data),
+    }
+    return card_result(forecast_text(card), card, ctx)
+
+
+# Built after the @apps.tool definitions: MCPServer collects extension tools at construction.
+server = MCPServer(
+    name="weather",
+    instructions=(
+        "Weather lookups for any place name worldwide. "
+        "Use get_current_weather for conditions right now and get_forecast for upcoming days. "
+        "In hosts that support MCP Apps, results render as an interactive weather card. "
+        + CARD_TOOL_NOTE
+    ),
+    extensions=[apps],
+)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ Layout:
 
 Current plugins:
 
-- **`weather`**: MCP server (`server.py`, Open-Meteo, no API key) with `get_current_weather` and `get_forecast` tools, plus a `weather` skill that tells Claude when and how to use them.
+- **`weather`**: MCP server (`server.py`, Open-Meteo, no API key) with `get_current_weather` and `get_forecast` tools, plus a `weather` skill that tells Claude when and how to use them. Both tools are MCP Apps bound to `ui://weather/card.html` (`widget.html`). The widget renders a current-conditions card or a forecast list from `structuredContent`; The current card's **Next 7/14 days** buttons send a `ui/message` user turn ("Show me the 7-day forecast for Lisbon."), so Claude calls `get_forecast` and a new forecast card appears in the chat.
 
 ### Plugin conventions
 
@@ -21,6 +21,18 @@ Current plugins:
 - **MCP SDK is 2.x**: `from mcp.server.mcpserver import MCPServer` (`FastMCP` was renamed in 2.0). It's a dev dependency so mypy and tests can import plugin servers.
 - Plugin code is linted and type-checked with the rest of the repo (ruff and mypy include `plugins/`). Tests live in `tests/plugins/test_<name>.py`. They load the server script with `importlib` and mock HTTP with `httpx.MockTransport`, so they never hit the network.
 - Run `claude plugin validate .` (marketplace) and `claude plugin validate plugins/<name>` after changing manifests.
+
+### MCP Apps conventions
+
+- Use the SDK's extension, `mcp.server.apps.Apps`: `@apps.tool(resource_uri="ui://<plugin>/<view>.html")` plus `apps.add_html_resource(...)`, passed as `MCPServer(extensions=[apps])`. **Construct `MCPServer` after all `@apps.tool` definitions.** It collects extension tools at construction, so tools defined later are silently missing.
+- UI-bound tools return `CallToolResult(content=[text], structured_content={...})`. The widget renders `structuredContent`, while the text `content` is what the model reads and what non-Apps hosts (like the Claude Code terminal) show, so it must be a complete answer on its own. Give `structuredContent` a `kind` field so one widget can render several views.
+- Widgets are a single self-contained HTML file next to `server.py`, with inline CSS, JS and SVG. The host's default CSP blocks external scripts, styles, fonts and `fetch`. Data comes only from tool results. Declare `ResourceCsp` domains if a widget ever needs network access.
+- Widgets speak the MCP Apps protocol (`2026-01-26`) directly over `postMessage`, with no SDK and no bundler. The handshake is `ui/initialize` (with `appInfo`), then `ui/notifications/initialized`. Handle `tool-input`, `tool-result`, `host-context-changed` (theme, CSS variables) and `resource-teardown`, and report height with `ui/notifications/size-changed`.
+- Style widgets with the host's CSS variables (`--color-background-primary`, `--color-text-primary`, `--font-sans`, …) with fallbacks, and support light and dark themes (`hostContext.theme`, then `prefers-color-scheme`).
+- After an in-widget action changes what the user sees, call `ui/update-model-context` so Claude can answer follow-up questions about it.
+- **Claude as host** (per Anthropic's `build-mcp-app` skill in `anthropics/claude-plugins-official`): widgets are supported for remote (streamable-HTTP) servers and MCPB bundles. A plain local stdio server is not a documented path, and app-initiated `tools/call` failed there with "IPC not available for MCP tool call". Claude Desktop caches UI resources aggressively, so after editing a widget fully quit (⌘Q) and relaunch. Closing the window isn't enough. To test in claude.ai, run the server over streamable HTTP and add it as a custom connector (through a tunnel for local dev).
+- **The card is the answer.** When the client supports MCP Apps (`client_supports_apps(ctx)`; tools take `ctx: Context | None = None`, which the SDK injects and hides from the input schema), add a note telling Claude not to summarize, so no duplicate text appears under the card. **Put it in `structuredContent` (`note_for_assistant`, first key) as well as the text.** Claude Code gives the model `structuredContent` *instead of* the text `content` whenever it's present. Claude Code announces the MCP Apps capability only when the Desktop app hosts it (env `CLAUDE_CODE_MCP_APPS_HOST`). To reproduce that locally, run `CLAUDE_CODE_MCP_APPS_HOST=1 claude -p "..." --plugin-dir ./plugins/<name>`. Note that in a real terminal Claude may sensibly ignore the note and answer in text. **Don't ask for an empty reply**: Claude Code rejects a turn with no visible output (it injects "Your previous response had no visible output…") and Claude then writes the full summary. Ask for one short line with no values instead. Text-only clients get the plain answer. The server logs the detected mode to stderr, which ends up in the host's MCP log.
+- **Widget actions are input to Claude.** Buttons send a `ui/message` (`{role: "user", content: [{type: "text", text}]}`) phrased as a request Claude can act on, so the action shows up in the conversation and Claude chooses the tool call. Don't replace this with local view switching. App-to-server `tools/call` is for silent data refreshes only, and some hosts reject it (one answered "IPC not available for MCP tool call"), so surface its errors in the widget.
 
 ### Plugin dev and release flow
 

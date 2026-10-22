@@ -11,8 +11,8 @@
     {
       "name": "weather",
       "source": "./plugins/weather",
-      "description": "Current weather and multi-day forecasts for any place, via Open-Meteo",
-      "version": "0.1.0"
+      "description": "Current weather and multi-day forecasts for any place, via Open-Meteo, rendered as interactive weather cards (MCP Apps)",
+      "version": "0.2.0"
     }
   ]
 }
