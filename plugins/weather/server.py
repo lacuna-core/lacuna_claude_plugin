@@ -15,9 +15,11 @@ The current-weather card's "Next 7/14 days" buttons send a `ui/message` into
 the conversation, so Claude itself calls get_forecast and a forecast card appears.
 
 Run standalone with: uv run --script plugins/weather/server.py
-Add --http to serve streamable HTTP at http://127.0.0.1:8000/mcp instead of stdio.
+Add --http to serve streamable HTTP at http://127.0.0.1:8000/mcp instead of stdio
+(HOST and PORT env vars override the address, e.g. in the Dockerfile for Cloud Run).
 """
 
+import os
 import sys
 from pathlib import Path
 from typing import Any, Literal
@@ -356,7 +358,12 @@ server = MCPServer(
 
 if __name__ == "__main__":
     if "--http" in sys.argv:
-        # Streamable HTTP on http://127.0.0.1:8000/mcp, e.g. for an ngrok tunnel.
-        server.run(transport="streamable-http", port=8000)
+        # Streamable HTTP at /mcp. The defaults (127.0.0.1:8000) suit an ngrok tunnel;
+        # containers such as Cloud Run set HOST=0.0.0.0 and PORT.
+        server.run(
+            transport="streamable-http",
+            host=os.environ.get("HOST", "127.0.0.1"),
+            port=int(os.environ.get("PORT", "8000")),
+        )
     else:
         server.run()

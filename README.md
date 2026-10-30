@@ -33,6 +33,7 @@ plugins/<plugin-name>/
 ├── hooks/hooks.json             # lifecycle hooks
 ├── .mcp.json                    # MCP servers bundled with the plugin
 ├── server.py                    # MCP server: a self-contained uv script (PEP 723)
+├── Dockerfile                   # optional: container for deploying server.py (e.g. Cloud Run)
 └── widget.html                  # MCP App UI: one self-contained HTML file, served as a ui:// resource
 ```
 
@@ -105,7 +106,29 @@ claude plugin validate plugins/weather    # plugin manifest, skills
 
 To debug an MCP server outside Claude Code, run it directly: `uv run --script plugins/weather/server.py` (it speaks MCP over stdio). Inside Claude Code, `/mcp` shows whether the server connected.
 
-**Remote server over HTTP with ngrok.** The plugin's `.mcp.json` points at the remote endpoint `https://steersman-nurture-sherry.ngrok-free.dev/mcp`, so the server and tunnel must be running for the plugin's tools to work:
+**MCP Apps widgets only render in hosts that support MCP Apps**, such as the Claude desktop and web apps. Claude Code in the terminal gets the tools' text output instead, which is a complete answer on its own. To see the cards, add the server to a host that renders MCP Apps, for example in Claude Desktop's `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "weather": {
+      "command": "uv",
+      "args": ["run", "--quiet", "--script", "/absolute/path/to/lacuna_claude_plugin/plugins/weather/server.py"]
+    }
+  }
+}
+```
+
+### Running the MCP server remotely
+
+`server.py --http` serves streamable HTTP at `/mcp` instead of stdio. It listens on `127.0.0.1:8000` by default; the `HOST` and `PORT` env vars override that. A remote URL is needed for claude.ai custom connectors and is the supported way to get MCP Apps cards in Claude. There are two options:
+
+- **Option A: ngrok tunnel.** The server runs on your machine and is only reachable while it and ngrok are running. The plugin's `.mcp.json` currently points here: `https://steersman-nurture-sherry.ngrok-free.dev/mcp`.
+- **Option B: Google Cloud Run.** The server runs in Google Cloud and is always reachable. It fits in Cloud Run's free tier at test-app traffic.
+
+The server has no authentication in either option, so anyone with the URL can call it.
+
+#### Option A: ngrok tunnel
 
 1. Install ngrok and log in (one time). Get the authtoken from https://dashboard.ngrok.com:
 
@@ -120,16 +143,7 @@ To debug an MCP server outside Claude Code, run it directly: `uv run --script pl
    uv run --script plugins/weather/server.py --http
    ```
 
-3. Optional: check the server locally with the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) (needs Node.js). In a second terminal, run:
-
-   ```bash
-   npx @modelcontextprotocol/inspector
-   ```
-
-   - It opens the Inspector UI in your browser (`http://localhost:6274`).
-   - Set **Transport Type** to `Streamable HTTP` and **URL** to `http://127.0.0.1:8000/mcp`, then click **Connect**.
-   - Under **Tools**, click **List Tools** and run `get_current_weather` with a `location`, e.g. `Lisbon`.
-   - After step 4 you can connect to `https://steersman-nurture-sherry.ngrok-free.dev/mcp` the same way to check the tunnel.
+3. Optional: check the server locally with the MCP Inspector (see [Testing with the MCP Inspector](#testing-with-the-mcp-inspector)), using `http://127.0.0.1:8000/mcp`.
 
 4. In another terminal, start the tunnel on the static domain:
 
@@ -137,26 +151,107 @@ To debug an MCP server outside Claude Code, run it directly: `uv run --script pl
    ngrok http 8000 --host-header=rewrite --url=https://steersman-nurture-sherry.ngrok-free.dev
    ```
 
-   - `--host-header=rewrite` is required. The SDK only accepts `localhost`/`127.0.0.1` Host headers and answers anything else with `421 Invalid Host header`.
+   - `--host-header=rewrite` is required. When bound to `127.0.0.1`, the SDK only accepts `localhost`/`127.0.0.1` Host headers and answers anything else with `421 Invalid Host header`.
 
-5. Connect a client to `https://steersman-nurture-sherry.ngrok-free.dev/mcp`:
-   - **Claude Code:** nothing to do. The plugin's `.mcp.json` already uses this URL. Check with `/mcp`.
-   - **claude.ai / Claude Desktop chat:** Settings → Connectors → Add custom connector, paste the URL, and leave the OAuth fields empty.
+5. Connect a client to `https://steersman-nurture-sherry.ngrok-free.dev/mcp` (see [Connecting a client](#connecting-a-client)).
 
-6. Stop ngrok (Ctrl+C) when you're done. The server has no authentication, so anyone with the URL can call it.
+6. Stop ngrok (Ctrl+C) when you're done.
 
-**MCP Apps widgets only render in hosts that support MCP Apps**, such as the Claude desktop and web apps. Claude Code in the terminal gets the tools' text output instead, which is a complete answer on its own. To see the cards, add the server to a host that renders MCP Apps, for example in Claude Desktop's `claude_desktop_config.json`:
+#### Option B: Google Cloud Run
 
-```json
-{
-  "mcpServers": {
-    "weather": {
-      "command": "uv",
-      "args": ["run", "--quiet", "--script", "/absolute/path/to/lacuna_claude_plugin/plugins/weather/server.py"]
-    }
-  }
-}
-```
+`plugins/weather/Dockerfile` builds the container. It sets `HOST=0.0.0.0` and `PORT=8080`, and installs the script's dependencies at build time so cold starts stay short.
+
+1. Install the gcloud CLI and log in (one time):
+
+   ```bash
+   brew install --cask google-cloud-sdk
+   gcloud auth login
+   ```
+
+2. Create the `weather-mcp-andrey` project and link a billing account (one time). Cloud Run's free tier needs billing enabled, but this app shouldn't leave it:
+
+   ```bash
+   gcloud projects create weather-mcp-andrey --name="Weather MCP"
+   gcloud config set project weather-mcp-andrey
+   gcloud billing accounts list                     # find the open account's ACCOUNT_ID
+   gcloud billing projects link weather-mcp-andrey --billing-account <BILLING_ACCOUNT_ID>
+   gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+   ```
+
+   - Skip `projects create` and `billing projects link` if the project already exists and is linked. `gcloud billing projects describe weather-mcp-andrey` shows `billingEnabled: true` once it's linked.
+   - Optional: set a budget alert under **Billing → Budgets & alerts**. It only sends an email and doesn't stop charges. `--max-instances 1` (step 3) is what caps compute.
+
+3. Build and deploy from the plugin directory. Cloud Build uses the Dockerfile, so you don't need Docker locally:
+
+   ```bash
+   gcloud run deploy weather-mcp \
+     --project weather-mcp-andrey \
+     --source plugins/weather \
+     --region us-central1 \
+     --allow-unauthenticated \
+     --max-instances 1
+   ```
+
+   - `--allow-unauthenticated` makes the endpoint public, which MCP clients without Google auth need.
+   - `--max-instances 1` keeps every request on the same instance. Sessions live in memory, and the server needs the session's `initialize` capabilities to know whether the client renders MCP Apps cards. After a scale-to-zero, clients just start a new session.
+
+4. Get the service URL. The MCP endpoint is that URL plus `/mcp`:
+
+   ```bash
+   gcloud run services describe weather-mcp --project weather-mcp-andrey --region us-central1 --format 'value(status.url)'
+   ```
+
+5. Optional: check the deployed server with the MCP Inspector (see [Testing with the MCP Inspector](#testing-with-the-mcp-inspector)), using `https://<service-url>/mcp`.
+
+6. Connect a client to `https://<service-url>/mcp` (see [Connecting a client](#connecting-a-client)).
+
+7. After editing `server.py` or `widget.html`, redeploy with the same command as step 3.
+
+8. Optional: clean up old images. Each deploy stores a new image in Artifact Registry, and only the newest one is tagged `latest` and served:
+
+   1. List all images with their tags:
+
+      ```bash
+      gcloud artifacts docker images list \
+        us-central1-docker.pkg.dev/weather-mcp-andrey/cloud-run-source-deploy/weather-mcp \
+        --include-tags
+      ```
+
+   2. Delete every image except `latest`:
+
+      ```bash
+      REPO=us-central1-docker.pkg.dev/weather-mcp-andrey/cloud-run-source-deploy/weather-mcp
+      gcloud artifacts docker images list "$REPO" --include-tags \
+        --filter='NOT tags:latest' --format='value(version)' |
+      while read -r digest; do
+        gcloud artifacts docker images delete "$REPO@$digest" --delete-tags --quiet
+      done
+      ```
+
+   - Run the `list` part alone first to see which digests will be deleted.
+   - After this, you can no longer roll back to older Cloud Run revisions, because their images are gone.
+
+9. To remove the service:
+
+   ```bash
+   gcloud run services delete weather-mcp --project weather-mcp-andrey --region us-central1
+   ```
+
+#### Testing with the MCP Inspector
+
+1. Run the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) (needs Node.js):
+
+   ```bash
+   npx @modelcontextprotocol/inspector
+   ```
+
+2. In the Inspector UI that opens in your browser (`http://localhost:6274`), set **Transport Type** to `Streamable HTTP` and **URL** to the server's `/mcp` URL, then click **Connect**.
+3. Under **Tools**, click **List Tools** and run `get_current_weather` with a `location`, e.g. `Lisbon`.
+
+#### Connecting a client
+
+- **Claude Code (this plugin):** set the `url` in `plugins/weather/.mcp.json` to the server's `/mcp` URL, then check it with `/mcp`.
+- **claude.ai / Claude Desktop chat:** Settings → Connectors → Add custom connector, paste the `/mcp` URL, and leave the OAuth fields empty.
 
 ### Releasing a plugin
 
