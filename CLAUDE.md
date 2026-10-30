@@ -12,12 +12,12 @@ Layout:
 
 Current plugins:
 
-- **`weather`**: MCP server (`server.py`, Open-Meteo, no API key) with `get_current_weather` and `get_forecast` tools, plus a `weather` skill that tells Claude when and how to use them. Both tools are MCP Apps bound to `ui://weather/card.html` (`widget.html`). The widget renders a current-conditions card or a forecast list from `structuredContent`; The current card's **Next 7/14 days** buttons send a `ui/message` user turn ("Show me the 7-day forecast for Lisbon."), so Claude calls `get_forecast` and a new forecast card appears in the chat.
+- **`weather`**: MCP server (`server.py`, Open-Meteo, no API key; the plugin's `.mcp.json` connects to it remotely at `https://steersman-nurture-sherry.ngrok-free.dev/mcp`, served by `server.py --http` through ngrok) with `get_current_weather` and `get_forecast` tools, plus a `weather` skill that tells Claude when and how to use them. Both tools are MCP Apps bound to `ui://weather/card.html` (`widget.html`). The widget renders a current-conditions card or a forecast list from `structuredContent`; The current card's **Next 7/14 days** buttons send a `ui/message` user turn ("Show me the 7-day forecast for Lisbon."), so Claude calls `get_forecast` and a new forecast card appears in the chat.
 
 ### Plugin conventions
 
 - **Plugins are self-contained.** An installed plugin is copied into Claude Code's plugin cache, so nothing outside its own directory (no `../`, no `src/`) is available at runtime.
-- **Python MCP servers are single-file [PEP 723](https://peps.python.org/pep-0723/) scripts** inside the plugin (`plugins/<name>/server.py`) with inline dependencies. `.mcp.json` launches them with `uv run --quiet --script ${CLAUDE_PLUGIN_ROOT}/server.py`. Use `${CLAUDE_PLUGIN_ROOT}`, never absolute paths.
+- **Python MCP servers are single-file [PEP 723](https://peps.python.org/pep-0723/) scripts** inside the plugin (`plugins/<name>/server.py`) with inline dependencies. A stdio `.mcp.json` launches them with `uv run --quiet --script ${CLAUDE_PLUGIN_ROOT}/server.py`; use `${CLAUDE_PLUGIN_ROOT}`, never absolute paths. A remote `.mcp.json` uses `{"type": "http", "url": "https://<host>/mcp"}` instead (`weather` does this), and the plugin only works while that server is reachable.
 - **MCP SDK is 2.x**: `from mcp.server.mcpserver import MCPServer` (`FastMCP` was renamed in 2.0). It's a dev dependency so mypy and tests can import plugin servers.
 - Plugin code is linted and type-checked with the rest of the repo (ruff and mypy include `plugins/`). Tests live in `tests/plugins/test_<name>.py`. They load the server script with `importlib` and mock HTTP with `httpx.MockTransport`, so they never hit the network.
 - Run `claude plugin validate .` (marketplace) and `claude plugin validate plugins/<name>` after changing manifests.
@@ -61,6 +61,7 @@ uv run lacuna --help                 # run the CLI
 claude plugin validate .                     # validate the marketplace manifest
 claude plugin validate plugins/weather       # validate one plugin
 uv run --script plugins/weather/server.py    # run a plugin's MCP server standalone (stdio)
+uv run --script plugins/weather/server.py --http   # streamable HTTP on 127.0.0.1:8000/mcp (tunnel: ngrok http 8000 --host-header=rewrite)
 ```
 
 ## Architecture
@@ -99,6 +100,7 @@ All commits generated or suggested by Claude must conform to this spec.
 
 ## Key conventions and guidelines
 
+- **Docs: prefer itemized instructions over text blobs.** Write multi-step procedures (in README, CONTRIBUTING, SKILL.md, etc.) as numbered steps with one action each and commands in their own code blocks, and put caveats in bullets rather than long paragraphs.
 - Dependency injection: pass config explicitly to any client/service — never read the global `SETTINGS` inside library code.
 - mypy is strict. All functions including tests need return type annotations.
 - Git hooks (pre-commit) run ruff (fix + format) and mypy on every commit.

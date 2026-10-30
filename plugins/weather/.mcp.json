@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "weather": {
-      "command": "uv",
-      "args": ["run", "--quiet", "--script", "${CLAUDE_PLUGIN_ROOT}/server.py"]
+      "type": "http",
+      "url": "https://steersman-nurture-sherry.ngrok-free.dev/mcp"
     }
   }
 }

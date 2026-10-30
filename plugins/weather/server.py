@@ -15,6 +15,7 @@ The current-weather card's "Next 7/14 days" buttons send a `ui/message` into
 the conversation, so Claude itself calls get_forecast and a forecast card appears.
 
 Run standalone with: uv run --script plugins/weather/server.py
+Add --http to serve streamable HTTP at http://127.0.0.1:8000/mcp instead of stdio.
 """
 
 import sys
@@ -354,4 +355,8 @@ server = MCPServer(
 
 
 if __name__ == "__main__":
-    server.run()
+    if "--http" in sys.argv:
+        # Streamable HTTP on http://127.0.0.1:8000/mcp, e.g. for an ngrok tunnel.
+        server.run(transport="streamable-http", port=8000)
+    else:
+        server.run()
