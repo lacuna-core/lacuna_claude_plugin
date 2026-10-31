@@ -20,7 +20,7 @@ This is a learning and prototyping repo, not a product. Each experiment should b
 
 | Plugin | What it does | What it exercises |
 |--------|--------------|-------------------|
-| [`weather`](plugins/weather) | Current weather and up-to-16-day forecasts for any place, from [Open-Meteo](https://open-meteo.com) (free, no API key), rendered as weather cards. The current-conditions card has **Next 7 days** / **Next 14 days** buttons | Python MCP server packaged in a plugin; a skill that steers tool use; an MCP App (`ui://` widget whose buttons send `ui/message`, so card actions become user input to Claude) |
+| [`weather`](plugins/weather) | Current weather and up-to-16-day forecasts for any place, from [Open-Meteo](https://open-meteo.com) (free, no API key), rendered as weather cards. The current-conditions card has **Next 7 days** / **Next 14 days** buttons | Python MCP server packaged in a plugin; a skill that steers tool use; an MCP App (`ui://` widget whose buttons call a server tool via `tools/call` and update the model context, falling back to `ui/message` where the host refuses) |
 
 Layout of a plugin (the standard Claude Code plugin structure):
 

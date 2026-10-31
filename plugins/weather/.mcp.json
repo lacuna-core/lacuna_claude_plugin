@@ -2,7 +2,7 @@
   "mcpServers": {
     "weather": {
       "type": "http",
-      "url": "https://weather-mcp-742542272014.us-central1.run.app/mcp"
+      "url": "https://steersman-nurture-sherry.ngrok-free.dev/mcp"
     }
   }
 }

@@ -11,8 +11,9 @@ Both tools are MCP Apps: they carry `_meta.ui.resourceUri` pointing at a `ui://`
 widget (widget.html) that hosts supporting MCP Apps render as a weather card.
 The widget gets its data from the tool result's `structuredContent`; the text
 `content` is the fallback for hosts without MCP Apps and is what the model reads.
-The current-weather card's "Next 7/14 days" buttons send a `ui/message` into
-the conversation, so Claude itself calls get_forecast and a forecast card appears.
+The current-weather card's "Next 7/14 days" buttons call get_forecast from the
+widget (app-to-server `tools/call`) and swap the card to the forecast. Hosts that
+refuse app-initiated tool calls get a `ui/message` instead, so Claude calls it.
 
 Run standalone with: uv run --script plugins/weather/server.py
 Add --http to serve streamable HTTP at http://127.0.0.1:8000/mcp instead of stdio

@@ -79,6 +79,7 @@
   .btn:hover { background: rgba(255,255,255,0.3); }
   .btn:active { transform: scale(0.98); }
   .btn[disabled] { opacity: 0.75; cursor: default; }
+  .btn.back { flex: none; padding: 6px 12px; font-size: 12.5px; }
 
   /* Forecast card */
   .fc { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); max-width: 520px; overflow: hidden; }
@@ -200,24 +201,70 @@
     if (card.kind === "forecast") return renderForecast(card);
   }
 
-  // Widget actions become user input: ui/message posts a user turn into the
-  // conversation, Claude reads it and calls get_forecast, and the host renders
-  // the result as a new forecast card.
-  async function askForForecast(days, card, button) {
-    const imperial = card.units === "imperial" ? " in imperial units" : "";
-    const text = `Show me the ${days}-day forecast for ${card.query}${imperial}.`;
+  // "Next N days" calls get_forecast directly (app-to-server tools/call) and swaps
+  // this card to the forecast, then tells Claude what's on screen via
+  // ui/update-model-context. Hosts that refuse app-initiated tool calls (one
+  // answered "IPC not available for MCP tool call") get the ui/message fallback.
+  async function showForecast(days, card, button) {
     const buttons = $app.querySelectorAll("[data-days]");
     buttons.forEach((b) => { b.disabled = true; });
-    button.innerHTML = `<span class="spin"></span>Asking Claude`;
+    button.innerHTML = `<span class="spin"></span>Loading`;
     const restore = () => buttons.forEach((b) => { b.disabled = false; b.textContent = b.dataset.label; });
+    let result;
+    try {
+      result = await request("tools/call", {
+        name: "get_forecast",
+        arguments: { location: card.query, days, units: card.units },
+      });
+    } catch (err) {
+      return askForForecast(days, card, button, restore, err);
+    }
+    const forecast = result && result.structuredContent;
+    if (!forecast || forecast.kind !== "forecast") {
+      restore();
+      const text = result && result.content && result.content.find((c) => c.type === "text");
+      return showNote((forecast && forecast.message) || (text && text.text) || "No forecast returned.");
+    }
+    renderForecast(forecast, card);
+    updateModelContext(
+      `The user clicked "Next ${days} days" in the weather card, which now shows this forecast:\n${forecastSummary(forecast)}`,
+      forecast);
+  }
+
+  // Fallback: post the request as a user turn so Claude calls get_forecast and
+  // the host renders a new forecast card.
+  async function askForForecast(days, card, button, restore, cause) {
+    console.warn("weather-card: tools/call failed, falling back to ui/message:", cause);
+    const imperial = card.units === "imperial" ? " in imperial units" : "";
+    const text = `Show me the ${days}-day forecast for ${card.query}${imperial}.`;
+    button.innerHTML = `<span class="spin"></span>Asking Claude`;
     try {
       await request("ui/message", { role: "user", content: [{ type: "text", text }] });
       button.textContent = "Added to chat ✓";
       setTimeout(restore, 2500);
     } catch (err) {
       restore();
-      showNote(`Couldn't send to Claude: ${err.message}`);
+      showNote(`Couldn't load the forecast: ${cause.message}. Couldn't send to Claude: ${err.message}`);
     }
+  }
+
+  function backToCurrent(card) {
+    renderCurrent(card);
+    updateModelContext(
+      `The user went back to current conditions in the weather card for ${card.location.label}.`, card);
+  }
+
+  // Best effort: the card still works if the host doesn't support model context.
+  function updateModelContext(text, structuredContent) {
+    request("ui/update-model-context", { content: [{ type: "text", text }], structuredContent })
+      .catch((err) => console.warn("weather-card: ui/update-model-context failed:", err));
+  }
+
+  function forecastSummary(card) {
+    const u = card.unit_labels;
+    return [`${card.days.length}-day forecast for ${card.location.label}:`, ...card.days.map((d) =>
+      `- ${d.date}: ${d.condition}, ${d.temp_min}–${d.temp_max}${u.temperature}, ` +
+      `precipitation ${d.precipitation} ${u.precipitation} (${d.precipitation_probability}% chance)`)].join("\n");
   }
 
   // ---------- Rendering ----------
@@ -317,10 +364,11 @@
         </div>
       </section>`;
     $app.querySelectorAll("[data-days]").forEach((b) =>
-      b.addEventListener("click", () => askForForecast(Number(b.dataset.days), card, b)));
+      b.addEventListener("click", () => showForecast(Number(b.dataset.days), card, b)));
   }
 
-  function renderForecast(card) {
+  // `back` is the current-conditions card this forecast was opened from, if any.
+  function renderForecast(card, back) {
     const p = placeLines(card.location), days = card.days;
     const lo = Math.min(...days.map((d) => d.temp_min)), hi = Math.max(...days.map((d) => d.temp_max));
     const span = Math.max(hi - lo, 1);
@@ -345,9 +393,11 @@
             <div class="place">${esc(p.title)}</div>
             <div class="sub">${days.length}-day forecast${p.sub ? ` · ${esc(p.sub)}` : ""}</div>
           </div>
+          ${back ? `<button class="btn back" data-back>← Now</button>` : ""}
         </header>
         <ul class="days">${rows}</ul>
       </section>`;
+    if (back) $app.querySelector("[data-back]").addEventListener("click", () => backToCurrent(back));
   }
 
   function showNote(text) {
@@ -362,7 +412,7 @@
   // ---------- Handshake ----------
   request("ui/initialize", {
     protocolVersion: PROTOCOL_VERSION,
-    appInfo: { name: "weather-card", version: "0.2.0" },
+    appInfo: { name: "weather-card", version: "0.3.0" },
     appCapabilities: { availableDisplayModes: ["inline"] },
   }).then((result) => {
     applyHostContext(result && result.hostContext);
